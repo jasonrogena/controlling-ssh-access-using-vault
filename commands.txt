@@ -1,0 +1,96 @@
+# Finish Vault setup
+ssh ubuntu@0.vault.test
+sudo su -
+vault operator init
+vault status
+vault unseal <replace with 1st unseal key>
+vault unseal <replace with 2nd unseal key>
+vault unseal <replace with 3rd unseal key>
+vault login <replace with root token>
+
+# Enable directories for storing SSH CA certificates
+vault secrets enable -path=ssh/blue ssh
+vault delete ssh/blue/config/ca
+vault write ssh/blue/config/ca generate_signing_key=true
+
+vault secrets enable -path=ssh/red
+vault delete ssh/red/config/ca
+vault write ssh/red/config/ca generate_signing_key=true
+
+# Create the policies
+
+# blue team
+path "ssh/blue/*" {
+  capabilities = ["create", "update", "delete", "read", "list"]
+}
+vault policy write blue-team policies/blue-team.hcl
+
+
+# red team
+path "ssh/red/*" {
+  capabilities = ["create", "update", "delete", "read", "list"]
+}
+vault policy write red-team policies/red-team.hcl
+
+# Create the roles
+vault auth enable userpass
+vault write auth/userpass/users/alice password=blah policies=blue-team
+vault write auth/userpass/users/bob password=blah policies=red-team
+
+vault write ssh/blue/roles/alice -<<"EOH"
+{
+  "allow_user_certificates": true,
+  "allowed_users": "*",
+  "default_extensions": [
+    {
+      "permit-pty": ""
+    }
+  ],
+  "key_type": "ca",
+  "default_user": "ubuntu",
+  "ttl": "30m0s"
+}
+EOH
+
+vault write ssh/red/roles/bob -<<"EOH"
+{
+  "allow_user_certificates": true,
+  "allowed_users": "*",
+  "default_extensions": [
+    {
+      "permit-pty": ""
+    }
+  ],
+  "key_type": "ca",
+  "default_user": "ubuntu",
+  "ttl": "30m0s"
+}
+EOH
+ 
+# key_type - can be otp, dynamic, ca
+# default_extensions - Extensions certificates should have if none are provided when signing other example is permit-agent-forwarding
+# permit-pty permits pseudotty terminal (tty).  Kernel provided pseudoserial port connected to programs emulating terminals, such as xterm, or screen
+
+# Copy over the CA certificates to the servers
+# Blue Team Server
+ssh ubuntu@blue.team
+sudo su -
+curl -o /etc/ssh/blue-team-ca.pem --header "X-Vault-Token: <replace with root token>" http://0.vault.test/v1/ssh/blue/public_key
+vim /etc/ssh/sshd_config
+systemctl reload ssh
+
+# Red Team Server
+ssh ubuntu@red.team
+sudo su -
+curl -o /etc/ssh/red-team-ca.pem --header "X-Vault-Token: <replace with root token>" http://0.vault.test/v1/ssh/red/public_key
+vim /etc/ssh/sshd_config
+systemctl reload ssh
+
+# Create key for teams in workstation
+ssh-keygen -t ed25519 -f ~/.ssh/blue-team
+export VAULT_ADDR="http://0.vault.test"
+vault login -method=userpass username=alice
+vault write -field=signed_key ssh/blue/sign/alice public_key=@$HOME/.ssh/blue-team.pub > ~/.ssh/blue-team-cert.pub
+
+# try to login to red team server
+# try to generate certificate for red team server

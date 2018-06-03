@@ -1,0 +1,110 @@
+Controlling SSH Access Using Hashicorp Vault
+2nd June 2018
+
+Jason Rogena
+Site Reliability Engineer, Ona.
+jasonrogena@gmail.com
+@jrogena
+
+* SSH Access
+
+We started off with a small engineering team needing access to a few servers:
+
+.image assets/access0.png 360 480
+
+* SSH Access
+
+Over time, as the team grew and the number of servers increased, the situation morphed to:
+
+.image assets/access1.png 360 480
+
+* SSH Access Hell
+
+It became harder to support such a system:
+
+1. Key exchange and storage not trivial:
+- Where do we store the private key so that it's easily accessible to team members and no one else?
+- How do you securely copy keys and passphrases
+
+2. Key rotation became a nightmare:
+- Would take time to do when someone left a team
+- So we opted not to do both
+
+* SSH Access Hell
+
+3. Managing access to many teams hard to do:
+- How do you track who is on which team?
+- How do you easily switch access?
+
+4. Compliance:
+- How do you conduct audits of who had access to what when?
+- Is our approach really best practice?
+
+* Hashicorp Vault to The Rescue
+
+We needed a tool to help us:
+
+- Control access to keys
+- Handle secure storage of SSH keys
+- Handle rotation (or make it easier to do)
+- Maintain an audit log for access
+
+Hashicorp's Vault seemed to be a good fit.
+
+Other tools that can do this:
+
+- AWS KMS
+- Netflix BLESS
+- Square Keywhiz
+
+* Hashicorp Vault
+
+Supports three ways of controlling access through SSH:
+
+1. Dynamic SSH Keys (deprecated):
+
+Vault handles gen of SSH Keypairs and registering the public key in the authorized_keys file on the remote hosts.
+
+2. SSH One Time Passwords:
+
+Vault server issues an OTP every time a user wants to SSH into a remote host. A helper command that connects to the Vault server runs on the remote host. Is responsible for rotating the SSH password.
+
+This method is vulnerable to spoofing.
+
+* Hashicorp Vault
+
+3. Signed Certificates:
+
+Relies on SSH certificate authentication. Certificate authentication involves:
+- The server admin generating a CA key and certificate
+- Placing the CA's certificate on the target server
+- Directing SSH to allow access to anyone that presents a certificate signed by the CA using the "TrustedUserCAKeys" config
+
+Vault handles the storing and controls access to the CAs keys and certificates.
+
+* Demo
+
+Servers:
+
+- Vault Server: 0.vault.test
+- Blue Team Server: blue.team
+- Red Team Server: red.team
+
+Users:
+
+- Alice from the Blue Team
+- Bob from the Red Team
+
+* Deployment Considerations
+
+1. Cluster for availability
+
+2. Use third-party authentication
+
+3. Isolate setup
+
+4. Automate CA cert rotation
+
+5. Use for other types of secrets
+
+6. Have a backup strategy
